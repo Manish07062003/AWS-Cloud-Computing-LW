@@ -1,0 +1,73 @@
+import boto3
+import os
+from io import BytesIO
+# Set up the S3 client and Amazon Textract client
+s3 = boto3.client('s3')
+textract = boto3.client('textract')
+def lambda_handler(event, context):
+
+
+    # Define the source and destination bucket names
+    source_bucket = 'myofficetopdfconversionbucket'
+    destination_bucket ='mypdfoutputbucket'
+
+    # Retrieve the S3 object from the event
+    s3_event_record = event['Records'][0]['s3']
+    object_key = s3_event_record['object']['key']
+    file_name, file_extension = os.path.splitext(os.path.basename(object_key))
+
+    # Download the file from S3
+    response = s3.get_object(Bucket=source_bucket, Key=object_key)
+    file_content = response['Body'].read()
+
+    # Extract text using Amazon Textract
+    extracted_text = extract_text_with_textract(file_content, file_extension)
+    print(extracted_text)
+
+    # Generate a new PDF containing the extracted text
+    # pdf_content = create_pdf_from_text(extracted_text)
+
+    # Upload the generated PDF to the destination bucket
+    # pdf_key = f"{file_name}.pdf"
+    # s3.put_object(Bucket=destination_bucket, Key=pdf_key, Body=pdf_content, ContentType='application/pdf')
+
+    return {
+        'statusCode': 200,
+        'body': 'File conversion successful!',
+    }
+
+def extract_text_with_textract(file_content, file_extension):
+    # Amazon Textract only supports images and PDF files
+    # We'll upload the office document as a temporary image to Amazon Textract
+    temp_image_path = '/tmp/temp_image.jpg'
+    with open(temp_image_path, 'wb') as temp_image_file:
+        temp_image_file.write(file_content)
+
+    # Call Amazon Textract to extract text from the image
+    response = textract.detect_document_text(Document={'Bytes': file_content})
+
+    # Extract the text from the Textract response
+    extracted_text = ""
+    for item in response['Blocks']:
+        if item['BlockType'] == 'LINE':
+            extracted_text += item['Text'] + "\n"
+
+    # Clean up the temporary image file
+    os.remove(temp_image_path)
+
+    return extracted_text
+
+def create_pdf_from_text(text):
+    # Create a new PDF file from the extracted text using fpdf library
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, text)
+    
+    pdf_output = BytesIO()
+    pdf.output(pdf_output)
+
+    return pdf_output.getvalue()
+
